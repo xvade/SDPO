@@ -9,15 +9,22 @@ ENV ROCR_VISIBLE_DEVICES=""
 ENV NCCL_NET=Socket
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    wget \
-    curl \
-    build-essential \
-    libsndfile1 \
-    libgl1 \
-    libglib2.0-0 \
-    && rm -rf /var/lib/apt/lists/*
+# RUN apt-get update && apt-get install -y --no-install-recommends \
+#     git \
+#     wget \
+#     curl \
+#     build-essential \
+#     libsndfile1 \
+#     libgl1 \
+#     libglib2.0-0 \
+#     && rm -rf /var/lib/apt/lists/*
+RUN echo 'APT::Sandbox::User "root";' > /etc/apt/apt.conf.d/99no-sandbox \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends \
+    git wget curl build-essential libsndfile1 libgl1 libglib2.0-0 \
+ && rm -rf /var/lib/apt/lists/* \
+ && rm -f /etc/apt/apt.conf.d/99no-sandbox
+`
 
 WORKDIR /app
 
