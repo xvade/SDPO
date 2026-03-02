@@ -21,15 +21,15 @@ DATA_PATHS=(
 )
 
 # Fixed Slurm resources
-ACCOUNT="a156"
+ACCOUNT="amath"
 NODES=1
-PARTITION="normal"
+PARTITION="gpu-rtx6k"
 TIME="12:00:00"
 ENV="sdpo"
 NTASKS_PER_NODE=1
-GPUS_PER_NODE=4
-MEM=460000
-CPUS_PER_TASK=288
+GPUS_PER_NODE=7
+MEM=349G
+CPUS_PER_TASK=39
 
 # Sweep Parameters
 TRAIN_BATCH_SIZES=(32)
@@ -45,6 +45,8 @@ ALPHAS=(1.0)
 MODEL_PATHS=(
     "Qwen/Qwen3-8B"
 )
+
+SDPO_PATH="/gscratch/scrubbed/sgvtc/SDPO"
 # =============================================================================
 # JOB SUBMISSION FUNCTION
 # =============================================================================
@@ -56,12 +58,19 @@ submit_job() {
 
     # Define the environment setup and command execution
     # We use the user's home directory dynamically
-    local setup_cmds="pip install word2number latex2sympy2 math-verify[antlr4_9_3]==0.8.0; \
-pip install -e /users/$USER/SDPO; \
+    local setup_cmds="
+pwd
+ls
+apptainer shell --nv \
+  --bind /gscratch/scrubbed/sgvtc/SDPO:/workspace/SDPO \
+  --bind /gscratch/scrubbed/sgvtc/SDPO/xvade/logs:/workspace/logs \
+  --bind /gscratch/scrubbed/sgvtc/SDPO/xvade/checkpoints:/workspace/checkpoints \
+  sdpo-gh200.sif & cd $SDPO_PATH & pwd & ls & pip install word2number latex2sympy2 math-verify[antlr4_9_3]==0.8.0; \
+pip install -e $SDPO_PATH; \
 pip install --upgrade wandb; \
-export PYTHONPATH=/users/$USER/SDPO:\$PYTHONPATH"
+export PYTHONPATH=$SDPO_PATH:\$PYTHONPATH"
 
-    local run_cmd="bash /users/$USER/SDPO/training/verl_training.sh $exp_name $CONFIG_NAME $data_path $script_args"
+    local run_cmd="bash $SDPO_PATH/training/verl_training.sh $exp_name $CONFIG_NAME $data_path $script_args"
 
     local wrapped_cmd="srun bash -c '$setup_cmds; $run_cmd'"
 
@@ -72,13 +81,13 @@ export PYTHONPATH=/users/$USER/SDPO:\$PYTHONPATH"
         --nodes="$NODES"
         --partition="$PARTITION"
         --time="$TIME"
-        --environment="$ENV"
+        # --environment="$ENV"
         --ntasks-per-node="$NTASKS_PER_NODE"
         --gpus-per-node="$GPUS_PER_NODE"
         --mem="$MEM"
         --cpus-per-task="$CPUS_PER_TASK"
-        --output="/users/$USER/output/SDPO/%j.log"
-        --error="/users/$USER/output/SDPO/%j.err"
+        --output="~/output/SDPO/%j.log"
+        --error="~/output/SDPO/%j.err"
         --wrap="$wrapped_cmd"
     )
 
