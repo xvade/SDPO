@@ -13,23 +13,50 @@ fi
 # =============================================================================
 
 # Base settings
+SDPO_PATH="/gscratch/scrubbed/sgvtc/SDPO"
+LOGS_PATH="/gscratch/scrubbed/sgvtc/SDPO/xvade/logs"
+CKPT_PATH="/gscratch/scrubbed/sgvtc/SDPO/xvade/checkpoints"
+SIF_PATH="/gscratch/scrubbed/sgvtc/SDPO/sdpo-gh200.sif"
+
 CONFIG_NAME="baseline_grpo"
 BASE_JOB_NAME="rlvr"
 
 DATA_PATHS=(
-    "datasets/lcb_v6"
+    "datasets/sciknoweval/chemistry"
 )
 
-# Fixed Slurm resources
-ACCOUNT="infra01"
+Fixed Slurm resources
+ACCOUNT="amath"
 NODES=1
-PARTITION="normal"
+PARTITION="gpu-l40s"
 TIME="12:00:00"
 ENV="sdpo"
 NTASKS_PER_NODE=1
-GPUS_PER_NODE=4
-MEM=460000
-CPUS_PER_TASK=288
+GPUS_PER_NODE=2
+MEM=364G
+CPUS_PER_TASK=32
+
+# ACCOUNT="amath"
+# NODES=1
+# PARTITION="gpu-rtx6k"
+# TIME="12:00:00"
+# ENV="sdpo"
+# NTASKS_PER_NODE=1
+# GPUS_PER_NODE=8
+# MEM=363G
+# CPUS_PER_TASK=40
+
+# ACCOUNT="amath"
+# NODES=1
+# PARTITION="ckpt"
+# TIME="12:00:00"
+# ENV="sdpo"
+# NTASKS_PER_NODE=1
+# GPUS_PER_NODE=8
+# MEM=363G
+# CPUS_PER_TASK=40
+# CONSTRAINT=a40
+
 
 # Sweep Parameters
 TRAIN_BATCH_SIZES=(32)
@@ -41,6 +68,8 @@ MODEL_PATHS=(
     "Qwen/Qwen3-8B"
 )
 
+WANDB_KEY="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"
+
 # =============================================================================
 # JOB SUBMISSION FUNCTION
 # =============================================================================
@@ -51,14 +80,34 @@ submit_job() {
     local data_path="$3"
     # Define the environment setup and command execution
     # We use the user's home directory dynamically
-    local setup_cmds="pip install word2number latex2sympy2 math-verify[antlr4_9_3]==0.8.0; \
-pip install -e /users/$USER/SDPO; \
+    local setup_cmds="\
+pwd; \
+ls; \
+export HOME=/tmp/$USER;\
+export PIP_CACHE_DIR=/tmp/$USER/pip-cache;\
+export PYTHONUSERBASE=/tmp/$USER/pyuserbase;\
+export WANDB_API_KEY="$WANDB_KEY";\
+export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-bundle.crt;\
+export SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt;\
+export CURL_CA_BUNDLE=/etc/ssl/certs/ca-bundle.crt;\
+pip install word2number latex2sympy2 math-verify[antlr4_9_3]==0.8.0; \
+pip install -e .; \
 pip install --upgrade wandb; \
-export PYTHONPATH=/users/$USER/SDPO:\$PYTHONPATH"
+export PYTHONPATH=.:\$PYTHONPATH; \
+"
 
-    local run_cmd="bash /users/$USER/SDPO/training/verl_training.sh $exp_name $CONFIG_NAME $data_path $script_args"
+    local run_cmd="bash ./training/verl_training.sh $exp_name $CONFIG_NAME $data_path $script_args"
 
-    local wrapped_cmd="srun bash -c '$setup_cmds; $run_cmd'"
+    local apptainer_cmd="bash ./xvade/bin/run_command_in_apptainer.sh $SIF_PATH $SDPO_PATH $LOGS_PATH $CKPT_PATH"
+
+    local wrapped_cmd="srun bash -c 'pwd; ls; $apptainer_cmd $setup_cmds $run_cmd'"
+
+
+    local inner_cmd="$setup_cmds $run_cmd"
+
+    local apptainer_cmd="bash $SDPO_PATH/xvade/bin/run_command_in_apptainer.sh $SIF_PATH $SDPO_PATH $LOGS_PATH $CKPT_PATH \"$inner_cmd\""
+
+local wrapped_cmd="srun bash -lc '$apptainer_cmd'"
 
     local sbatch_cmd=(
         sbatch
@@ -67,13 +116,14 @@ export PYTHONPATH=/users/$USER/SDPO:\$PYTHONPATH"
         --nodes="$NODES"
         --partition="$PARTITION"
         --time="$TIME"
-        --environment="$ENV"
+        # --environment="$ENV"
         --ntasks-per-node="$NTASKS_PER_NODE"
         --gpus-per-node="$GPUS_PER_NODE"
         --mem="$MEM"
         --cpus-per-task="$CPUS_PER_TASK"
-        --output="/users/$USER/output/SDPO/%j.log"
-        --error="/users/$USER/output/SDPO/%j.err"
+        --output="$SDPO_PATH/xvade/output/SDPO/%j.log"
+        --error="$SDPO_PATH/xvade/output/SDPO/%j.log"
+        --constraint="$CONSTRAINT"
         --wrap="$wrapped_cmd"
     )
 
@@ -91,6 +141,27 @@ export PYTHONPATH=/users/$USER/SDPO:\$PYTHONPATH"
 # MAIN SWEEP LOOP
 # =============================================================================
 
+OG_ARG_BLOCK="data.train_batch_size=$TRAIN_BATCH_SIZE \
+trainer.group_name=vilin97-uw \
+actor_rollout_ref.actor.optim.lr_warmup_steps=0 \
+actor_rollout_ref.rollout.n=$ROLLOUT_BATCH_SIZE \
+actor_rollout_ref.actor.optim.lr=$LR \
+actor_rollout_ref.actor.ppo_mini_batch_size=$MINI_BATCH_SIZE \
+actor_rollout_ref.model.path=$MODEL_PATH \
+algorithm.rollout_correction.rollout_is=token \
+actor_rollout_ref.rollout.val_kwargs.n=4"
+
+L40S_ARG_BLOCK="data.train_batch_size=$TRAIN_BATCH_SIZE \
+trainer.group_name=vilin97-uw \
+actor_rollout_ref.actor.optim.lr_warmup_steps=0 \
+actor_rollout_ref.rollout.n=$ROLLOUT_BATCH_SIZE \
+actor_rollout_ref.actor.optim.lr=$LR \
+actor_rollout_ref.actor.ppo_mini_batch_size=$MINI_BATCH_SIZE \
+actor_rollout_ref.model.path=$MODEL_PATH \
+algorithm.rollout_correction.rollout_is=token \
+actor_rollout_ref.rollout.val_kwargs.n=4"
+
+
 for TRAIN_BATCH_SIZE in "${TRAIN_BATCH_SIZES[@]}"; do
     for ROLLOUT_BATCH_SIZE in "${ROLLOUT_BATCH_SIZES[@]}"; do
         for LR in "${LRS[@]}"; do
@@ -102,15 +173,7 @@ for TRAIN_BATCH_SIZE in "${TRAIN_BATCH_SIZES[@]}"; do
 
                         # 2. Construct the arguments string to pass to the training script
                         # Format: key=value key2=value2 ...
-                        ARGS="data.train_batch_size=$TRAIN_BATCH_SIZE \
-trainer.group_name=GRPO-rich-feedback \
-actor_rollout_ref.actor.optim.lr_warmup_steps=0 \
-actor_rollout_ref.rollout.n=$ROLLOUT_BATCH_SIZE \
-actor_rollout_ref.actor.optim.lr=$LR \
-actor_rollout_ref.actor.ppo_mini_batch_size=$MINI_BATCH_SIZE \
-actor_rollout_ref.model.path=$MODEL_PATH \
-algorithm.rollout_correction.rollout_is=token \
-actor_rollout_ref.rollout.val_kwargs.n=4"
+                        ARGS="$L40S_ARG_BLOCK"
 
                         # 3. Submit
                         submit_job "$EXP_NAME" "$ARGS" "$DATA_PATH"

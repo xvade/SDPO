@@ -2,10 +2,10 @@ defaults:
   - _self_
 
 vars:
-  dir: /workspace/SDPO
+  dir: /users/sgvtc/SDPO
   task: ${oc.env:TASK}
-  log_dir: /workspace/SDPO/xvade/logs
-  ckpt_dir: /workspace/SDPO/xvade/checkpoints
+  log_dir: /users/sgvtc/SDPO/xvade/logs
+  ckpt_dir: /users/sgvtc/SDPO/xvade/checkpoints
 
 data:
   train_files: ["${vars.dir}/${vars.task}/train.parquet"]
@@ -57,7 +57,7 @@ trainer:
   project_name: SDPO-${oc.env:USER}
   group_name: ${oc.env:EXPERIMENT}
   experiment_name: ${oc.env:EXPERIMENT}
-  n_gpus_per_node: 4
+  n_gpus_per_node: 2
   nnodes: 1
   save_freq: 0
   test_freq: 5

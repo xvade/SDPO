@@ -5,6 +5,7 @@
 # vllm==0.8.4       # GH200 cluster
 # vllm>=0.12.0      # Blackwell (RTX 50 series, B100/B200) - NOT FULLY TESTED
 
+vllm>=0.12.0
 accelerate==1.12.0
 codetiming==1.4.0
 datasets==4.4.2
