@@ -202,7 +202,8 @@ class vLLMHttpServer:
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
-        self.config.max_model_len = get_max_position_embeddings(self.model_config.hf_config)
+        # self.config.max_model_len = get_max_position_embeddings(self.model_config.hf_config) # this line introduces a bug that overrides settings with the model default
+        self.config.max_model_len = 1024 # this line introduces a bug that overrides settings
         self.rollout_mode = rollout_mode
         self.workers = workers
 

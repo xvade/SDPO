@@ -25,7 +25,7 @@ DATA_PATHS=(
     "datasets/sciknoweval/chemistry"
 )
 
-Fixed Slurm resources
+# Fixed Slurm resources
 ACCOUNT="amath"
 NODES=1
 PARTITION="gpu-l40s"
@@ -34,7 +34,7 @@ ENV="sdpo"
 NTASKS_PER_NODE=1
 GPUS_PER_NODE=2
 MEM=364G
-CPUS_PER_TASK=32
+CPUS_PER_TASK=4
 
 # ACCOUNT="amath"
 # NODES=1
@@ -65,10 +65,13 @@ MINI_BATCH_SIZES=(8)
 
 LRS=(1e-6)
 MODEL_PATHS=(
-    "Qwen/Qwen3-8B"
+    # "Qwen/Qwen3-8B"
+    # "Qwen/Qwen2.5-0.5B-Instruct"
+    # "Qwen/Qwen2.5-1.5B-Instruct"
+    "Qwen/Qwen2.5-3B-Instruct"
 )
 
-WANDB_KEY="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"
+WANDB_KEY="$(tr -d '\r\n' < "$SDPO_PATH/xvade/wandb_apikey.txt")"
 
 # =============================================================================
 # JOB SUBMISSION FUNCTION
@@ -100,14 +103,11 @@ export PYTHONPATH=.:\$PYTHONPATH; \
 
     local apptainer_cmd="bash ./xvade/bin/run_command_in_apptainer.sh $SIF_PATH $SDPO_PATH $LOGS_PATH $CKPT_PATH"
 
-    local wrapped_cmd="srun bash -c 'pwd; ls; $apptainer_cmd $setup_cmds $run_cmd'"
-
-
     local inner_cmd="$setup_cmds $run_cmd"
 
     local apptainer_cmd="bash $SDPO_PATH/xvade/bin/run_command_in_apptainer.sh $SIF_PATH $SDPO_PATH $LOGS_PATH $CKPT_PATH \"$inner_cmd\""
 
-local wrapped_cmd="srun bash -lc '$apptainer_cmd'"
+    local wrapped_cmd="srun bash -lc '$apptainer_cmd'"
 
     local sbatch_cmd=(
         sbatch
@@ -141,7 +141,20 @@ local wrapped_cmd="srun bash -lc '$apptainer_cmd'"
 # MAIN SWEEP LOOP
 # =============================================================================
 
-OG_ARG_BLOCK="data.train_batch_size=$TRAIN_BATCH_SIZE \
+for TRAIN_BATCH_SIZE in "${TRAIN_BATCH_SIZES[@]}"; do
+    for ROLLOUT_BATCH_SIZE in "${ROLLOUT_BATCH_SIZES[@]}"; do
+        for LR in "${LRS[@]}"; do
+            for MODEL_PATH in "${MODEL_PATHS[@]}"; do
+                for MINI_BATCH_SIZE in "${MINI_BATCH_SIZES[@]}"; do
+                    for DATA_PATH in "${DATA_PATHS[@]}"; do
+                        # 1. Construct the experiment name (must be unique)
+                        MODEL_NAME=$(echo "$MODEL_PATH" | tr '/' '-')
+                        EXP_NAME="GRPO-mbs-${MINI_BATCH_SIZE}-train${TRAIN_BATCH_SIZE}-rollout${ROLLOUT_BATCH_SIZE}-lr${LR}-model${MODEL_PATH}"
+
+                        # 2. Construct the arguments string to pass to the training script
+                        # Format: key=value key2=value2 ...
+
+                        OG_ARG_BLOCK="data.train_batch_size=$TRAIN_BATCH_SIZE \
 trainer.group_name=vilin97-uw \
 actor_rollout_ref.actor.optim.lr_warmup_steps=0 \
 actor_rollout_ref.rollout.n=$ROLLOUT_BATCH_SIZE \
@@ -159,20 +172,12 @@ actor_rollout_ref.actor.optim.lr=$LR \
 actor_rollout_ref.actor.ppo_mini_batch_size=$MINI_BATCH_SIZE \
 actor_rollout_ref.model.path=$MODEL_PATH \
 algorithm.rollout_correction.rollout_is=token \
-actor_rollout_ref.rollout.val_kwargs.n=4"
+actor_rollout_ref.rollout.val_kwargs.n=4 \
+\
+actor_rollout_ref.rollout.max_num_seqs=8"
 
 
-for TRAIN_BATCH_SIZE in "${TRAIN_BATCH_SIZES[@]}"; do
-    for ROLLOUT_BATCH_SIZE in "${ROLLOUT_BATCH_SIZES[@]}"; do
-        for LR in "${LRS[@]}"; do
-            for MODEL_PATH in "${MODEL_PATHS[@]}"; do
-                for MINI_BATCH_SIZE in "${MINI_BATCH_SIZES[@]}"; do
-                    for DATA_PATH in "${DATA_PATHS[@]}"; do
-                        # 1. Construct the experiment name (must be unique)
-                        EXP_NAME="FINAL-GRPO-mbs-${MINI_BATCH_SIZE}-train${TRAIN_BATCH_SIZE}-rollout${ROLLOUT_BATCH_SIZE}-lr${LR}-model${MODEL_PATH}"
 
-                        # 2. Construct the arguments string to pass to the training script
-                        # Format: key=value key2=value2 ...
                         ARGS="$L40S_ARG_BLOCK"
 
                         # 3. Submit
