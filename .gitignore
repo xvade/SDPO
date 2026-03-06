@@ -133,3 +133,12 @@ outputs
 other_implementation
 Dockerfile.gh200-ofi
 DOCKER_PLAN_GH200.md
+
+xvade/wandb_apikey.txt
+
+datasets/sciknoweval
+datasets/tooluse
+figures
+
+sdpo-gh200.sif
+sdpo-gh200.tar
