@@ -34,7 +34,7 @@ ENV="sdpo"
 NTASKS_PER_NODE=1
 GPUS_PER_NODE=2
 MEM=364G
-CPUS_PER_TASK=4
+CPUS_PER_TASK=8
 
 # ACCOUNT="amath"
 # NODES=1
@@ -174,11 +174,11 @@ actor_rollout_ref.rollout.val_kwargs.n=4"
 
                             L40S_ARG_BLOCK="data.train_batch_size=$TRAIN_BATCH_SIZE \
 trainer.group_name=vilin97-uw \
+trainer.resume_mode=auto \
 actor_rollout_ref.rollout.n=$ROLLOUT_BATCH_SIZE \
 actor_rollout_ref.model.path=$MODEL_PATH \
 actor_rollout_ref.actor.optim.lr=$LR \
-actor_rollout_ref.actor.ppo_mini_batch_size=8 \
-actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
+actor_rollout_ref.actor.ppo_mini_batch_size=1 \
 actor_rollout_ref.actor.self_distillation.distillation_topk=20 \
 algorithm.rollout_correction.rollout_is=token \
 actor_rollout_ref.actor.self_distillation.dont_reprompt_on_self_success=${DONTS_REPROMPT_ON_SELF_SUCCESS} \
@@ -186,6 +186,7 @@ actor_rollout_ref.actor.self_distillation.alpha=$ALPHA \
 actor_rollout_ref.actor.self_distillation.teacher_update_rate=0.01 \
 actor_rollout_ref.actor.optim.lr_warmup_steps=0 \
 actor_rollout_ref.rollout.val_kwargs.n=4 \
+ray_kwargs.ray_init.num_cpus=8 \
 \
 actor_rollout_ref.rollout.max_num_seqs=8"
 
@@ -201,3 +202,36 @@ actor_rollout_ref.rollout.max_num_seqs=8"
     done
 done
 
+# An explanation of the L40S_ARG_BLOCK
+
+# data.train_batch_size=$TRAIN_BATCH_SIZE \
+# trainer.group_name=vilin97-uw \
+# actor_rollout_ref.rollout.n=$ROLLOUT_BATCH_SIZE \
+# actor_rollout_ref.model.path=$MODEL_PATH \
+# actor_rollout_ref.actor.optim.lr=$LR \
+# actor_rollout_ref.actor.ppo_mini_batch_size=8 \
+# actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
+        # above here all does what it says on the package
+
+# actor_rollout_ref.actor.self_distillation.distillation_topk=20 \
+        # I think that line governs the number of tokens tokens in each position that actually recieve the feedback
+
+# algorithm.rollout_correction.rollout_is=token \
+        # I don't know what this does
+
+# actor_rollout_ref.actor.self_distillation.dont_reprompt_on_self_success=${DONTS_REPROMPT_ON_SELF_SUCCESS} \
+        # Does what it says, if this is true, it won't reprompt if it succeeds
+
+# actor_rollout_ref.actor.self_distillation.alpha=$ALPHA \
+# actor_rollout_ref.actor.self_distillation.teacher_update_rate=0.01 \
+# actor_rollout_ref.actor.optim.lr_warmup_steps=0 \
+        # These are normal
+
+# actor_rollout_ref.rollout.val_kwargs.n=4 \
+        # Not sure what this is
+
+# ray_kwargs.ray_init.num_cpus=8 \
+        # ChatGPT suggested solution to prevent Ray from hanging on startup
+# \
+# actor_rollout_ref.rollout.max_num_seqs=8"
+        # Not entirely sure what this is
