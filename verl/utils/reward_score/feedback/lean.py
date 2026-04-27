@@ -40,6 +40,22 @@ def extract_lean_code(response: str) -> Optional[str]:
     return None
 
 
+def _resp_get(response, attr: str, default=None):
+    """Access a field from a response object that may be a Pydantic model or a plain dict."""
+    if response is None:
+        return default
+    if isinstance(response, dict):
+        return response.get(attr, default)
+    return getattr(response, attr, default)
+
+
+def _item_get(item, attr: str, default=None):
+    """Access a field from a list item that may be a Pydantic model or a plain dict."""
+    if isinstance(item, dict):
+        return item.get(attr, default)
+    return getattr(item, attr, default)
+
+
 def format_lean_feedback(result, was_truncated: bool) -> str:
     if was_truncated:
         return "Your response was truncated because it exceeded the maximum length."
@@ -54,18 +70,26 @@ def format_lean_feedback(result, was_truncated: bool) -> str:
         return f"Server error during verification: {result.error}"
 
     if analysis.status == SnippetStatus.sorry:
-        sorries = (result.response.sorries if result.response else [])
+        sorries = _resp_get(result.response, "sorries", [])
         if sorries:
             s = sorries[0]
-            goal_info = f" Remaining goal:\n{s.goal}" if getattr(s, "goal", None) else ""
-            return f"Your proof is incomplete — it contains `sorry` at line {s.pos.line}.{goal_info}"
+            pos = _item_get(s, "pos", {})
+            line = _item_get(pos, "line", "?") if isinstance(pos, dict) else getattr(pos, "line", "?")
+            goal = _item_get(s, "goal", None)
+            goal_info = f" Remaining goal:\n{goal}" if goal else ""
+            return f"Your proof is incomplete — it contains `sorry` at line {line}.{goal_info}"
         return "Your proof is incomplete — it contains `sorry`."
 
     if analysis.status == SnippetStatus.lean_error:
-        messages = (result.response.messages if result.response else [])
-        errors = [m for m in messages if m.severity == "error"]
+        messages = _resp_get(result.response, "messages", [])
+        errors = [m for m in messages if _item_get(m, "severity") == "error"]
         if errors:
-            lines = [f"Line {m.pos.line}: {m.data}" for m in errors[:3]]
+            lines = []
+            for m in errors[:3]:
+                pos = _item_get(m, "pos", {})
+                line = _item_get(pos, "line", "?") if isinstance(pos, dict) else getattr(pos, "line", "?")
+                data = _item_get(m, "data", "")
+                lines.append(f"Line {line}: {data}")
             return "Lean reported the following error(s):\n" + "\n".join(lines)
         return "Lean reported an error."
 
@@ -94,7 +118,7 @@ def compute_score(
         else:
             feedback = (
                 "Your answer had the wrong format. "
-                "The Lean proof must be given in a ```lean ... ``` code block."
+                "The Lean proof must be given in a ```lean4 ... ``` code block."
             )
         return {
             "score": 0.0,

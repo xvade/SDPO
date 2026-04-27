@@ -1,109 +1,161 @@
 """Prepare a miniF2F Lean 4 dataset for SDPO training.
 
-Downloads miniF2F from HuggingFace and converts it to the JSON format
-expected by data/preprocess.py, then calls run_proprocessing() to produce
-train.parquet and test.parquet.
+Downloads individual .lean files from yangky11/miniF2F-lean4 on GitHub and
+converts them to the JSON format expected by data/preprocess.py, then calls
+run_proprocessing() to produce train.parquet and test.parquet.
+
+Each file has the structure:
+    import Mathlib
+    set_option maxHeartbeats 0
+    open BigOperators Real Nat Topology Rat
+    theorem <name> <params> : <statement> := by sorry
+
+The `ground_truth` for each example is the file content with `sorry` stripped,
+i.e. everything up to and including `:= by`. The model generates the tactic body.
 
 Usage:
     python data/make_lean_dataset.py [--output_dir datasets/lean/minif2f]
 
-The HuggingFace dataset used is `cat-searcher/minif2f-lean4`. Each split
-("valid" and "test") is mapped as follows:
-  - valid  → train split (used during RL training)
-  - test   → test  split (used for evaluation)
-
-Output JSON schema (matches make_map_fn in preprocess.py):
-  idx, kind, dataset, answer, tests, description, elo, prompt, system
+Splits:
+  MiniF2F/Valid/ → train split (used during RL training)
+  MiniF2F/Test/  → test  split (used for evaluation)
 """
 
 import argparse
 import json
 import os
 import sys
+import time
+import urllib.request
+
+GITHUB_API = "https://api.github.com/repos/yangky11/miniF2F-lean4/contents/MiniF2F/{split}"
+RAW_BASE = "https://raw.githubusercontent.com/yangky11/miniF2F-lean4/main/MiniF2F/{split}/{filename}"
 
 SYSTEM_PROMPT = (
     "You are a Lean 4 expert. Write complete tactic proofs. "
-    "Always present your proof inside a ```lean ... ``` code block. "
+    "Always present your proof inside a ```lean4 ... ``` code block. "
     "Do not use `sorry`."
 )
 
-HF_DATASET = "cat-searcher/minif2f-lean4"
+
+def _get(url: str) -> str:
+    req = urllib.request.Request(url, headers={"User-Agent": "make_lean_dataset/1.0"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return resp.read().decode("utf-8")
 
 
-def make_record(idx: int, example: dict, split: str) -> dict:
-    """Convert one miniF2F row into the SDPO JSON record format."""
-    formal = example.get("formal_statement", "").strip()
-    informal = (
-        example.get("informal_stmt")
-        or example.get("header")
-        or example.get("problem_name")
-        or formal
-    ).strip()
+def list_lean_files(gh_split: str) -> list:
+    """Return list of .lean filenames in MiniF2F/{gh_split}/."""
+    url = GITHUB_API.format(split=gh_split)
+    data = json.loads(_get(url))
+    return [entry["name"] for entry in data if entry["name"].endswith(".lean")]
 
-    # ground_truth = the full Lean preamble the model's proof body is appended to.
-    # miniF2F formal_statement already includes imports and ends with ":= by" or similar.
-    # If not, we add ":= by" so the model only needs to supply tactic steps.
-    if not formal.rstrip().endswith("by"):
-        answer = formal.rstrip() + " := by"
-    else:
-        answer = formal
+
+def fetch_file(gh_split: str, filename: str) -> str:
+    url = RAW_BASE.format(split=gh_split, filename=filename)
+    return _get(url)
+
+
+def parse_ground_truth(content: str) -> str:
+    """Strip `sorry` from the end of a miniF2F file, leaving `:= by`.
+
+    Returns None if the file doesn't look like a miniF2F theorem.
+    """
+    stripped = content.rstrip()
+    # All files end with ':= by sorry' on one line
+    if stripped.endswith(" sorry"):
+        return stripped[: -len(" sorry")].rstrip()
+    # Fallback: multi-line sorry block
+    if "\nsorry" in stripped:
+        idx = stripped.rfind("\nsorry")
+        candidate = stripped[:idx].rstrip()
+        if candidate.endswith("by"):
+            return candidate
+    return None
+
+
+def extract_theorem_statement(content: str) -> str:
+    """Extract just the theorem declaration line(s), without the preamble."""
+    lines = content.splitlines()
+    in_theorem = False
+    theorem_lines = []
+    for line in lines:
+        if line.startswith("theorem "):
+            in_theorem = True
+        if in_theorem:
+            theorem_lines.append(line)
+    stmt = "\n".join(theorem_lines)
+    if stmt.endswith(" sorry"):
+        stmt = stmt[: -len(" sorry")]
+    return stmt.strip()
+
+
+def make_record(idx: int, theorem_name: str, content: str) -> dict:
+    ground_truth = parse_ground_truth(content)
+    if ground_truth is None:
+        return None
+
+    # Use the theorem name as the natural-language description (no prose available)
+    description = theorem_name.replace("_", " ")
+    theorem_stmt = extract_theorem_statement(content)
 
     prompt = (
-        f"Prove the following theorem in Lean 4:\n\n"
-        f"{informal}\n\n"
-        f"Formal statement:\n{formal}\n\n"
-        f"Present your tactic proof in a ```lean code block."
+        f"Prove the following Lean 4 theorem:\n\n"
+        f"```lean4\n{theorem_stmt}\n```\n\n"
+        f"Present your complete tactic proof in a ```lean4 code block."
     )
 
     return {
         "idx": idx,
         "kind": "lean",
         "dataset": "lean",
-        "answer": answer,
-        "tests": "-",
-        "description": informal,
+        "answer": theorem_name,   # not used; ground_truth comes from tests
+        "tests": ground_truth,    # Lean preamble (imports + theorem header := by)
+        "description": description,
         "elo": 1500,
         "prompt": prompt,
         "system": SYSTEM_PROMPT,
     }
 
 
+def download_split(gh_split: str, out_split: str, output_dir: str):
+    print(f"\nFetching file list for {gh_split}/ ...")
+    filenames = list_lean_files(gh_split)
+    print(f"  Found {len(filenames)} .lean files")
+
+    records = []
+    skipped = 0
+    for idx, filename in enumerate(sorted(filenames)):
+        theorem_name = filename[: -len(".lean")]
+        try:
+            content = fetch_file(gh_split, filename)
+            time.sleep(0.05)  # avoid GitHub rate limiting
+        except Exception as e:
+            print(f"  WARNING: could not fetch {filename}: {e}")
+            skipped += 1
+            continue
+
+        record = make_record(idx, theorem_name, content)
+        if record is None:
+            print(f"  WARNING: could not parse {filename}, skipping")
+            skipped += 1
+            continue
+        records.append(record)
+
+    out_path = os.path.join(output_dir, f"{out_split}.json")
+    with open(out_path, "w") as f:
+        for record in records:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    print(f"  Wrote {len(records)} records → {out_path}  ({skipped} skipped)")
+
+
 def load_and_convert(output_dir: str):
-    try:
-        import datasets as hf_datasets
-    except ImportError:
-        print("ERROR: install the `datasets` package first: pip install datasets", file=sys.stderr)
-        sys.exit(1)
-
-    print(f"Loading {HF_DATASET} from HuggingFace...")
-    ds = hf_datasets.load_dataset(HF_DATASET)
-
     os.makedirs(output_dir, exist_ok=True)
 
-    # miniF2F uses "valid" and "test" splits; we map valid→train, test→test.
-    split_map = {}
-    for hf_split, out_split in [("valid", "train"), ("test", "test")]:
-        if hf_split in ds:
-            split_map[hf_split] = out_split
-        else:
-            print(f"WARNING: split '{hf_split}' not found in dataset, skipping.")
+    # Valid → train, Test → test (standard miniF2F convention)
+    download_split("Valid", "train", output_dir)
+    download_split("Test", "test", output_dir)
 
-    if not split_map:
-        print("ERROR: no usable splits found.", file=sys.stderr)
-        sys.exit(1)
-
-    for hf_split, out_split in split_map.items():
-        records = []
-        for idx, example in enumerate(ds[hf_split]):
-            records.append(make_record(idx, example, out_split))
-
-        out_path = os.path.join(output_dir, f"{out_split}.json")
-        with open(out_path, "w") as f:
-            for record in records:
-                f.write(json.dumps(record) + "\n")
-        print(f"Wrote {len(records)} records → {out_path}")
-
-    # Produce parquet via the existing preprocessing pipeline.
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from data.preprocess import run_proprocessing
     print(f"\nRunning preprocess.py on {output_dir} ...")

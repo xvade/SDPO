@@ -64,6 +64,8 @@ def make_map_fn(split: str):
 
             if reward_style == "code":
                 solution = tests
+            elif reward_style == "lean":
+                solution = tests
 
             # remove 'self' from method signature if present
             if data_source == "livecodebench":

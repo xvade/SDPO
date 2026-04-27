@@ -32,7 +32,7 @@ DATA_PATHS=(
 )
 
 KIMINA_DISCOVERY_DIR="/mmfs1/gscratch/scrubbed/sgvtc/kimina_server_discovery"
-KIMINA_CLIENT_SRC="/mmfs1/gscratch/scrubbed/sgvtc/kimina-engine/client"
+KIMINA_CLIENT_SRC="/mmfs1/gscratch/scrubbed/sgvtc/kimina-engine"
 
 # Fixed Slurm resources
 ACCOUNT="amath"
@@ -149,6 +149,7 @@ for TRAIN_BATCH_SIZE in "${TRAIN_BATCH_SIZES[@]}"; do
                             EXP_NAME="LEAN-SDPO-train${TRAIN_BATCH_SIZE}-alpha${ALPHA}-rollout${ROLLOUT_BATCH_SIZE}-lr${LR}-dross${DONTS_REPROMPT_ON_SELF_SUCCESS}-${MODEL_NAME}"
 
                             ARG_BLOCK="data.train_batch_size=$TRAIN_BATCH_SIZE \
+reward_model.reward_manager=lean \
 trainer.group_name=vilin97-uw \
 trainer.resume_mode=auto \
 actor_rollout_ref.rollout.n=$ROLLOUT_BATCH_SIZE \
