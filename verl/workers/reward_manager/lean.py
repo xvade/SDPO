@@ -80,7 +80,7 @@ class LeanRewardManager(NaiveRewardManager):
         if snippets:
             try:
                 client = _get_client()
-                check_response = client.check(snippets, max_workers=15, show_progress=False)
+                check_response = client.check(snippets, max_workers=63, batch_size=1, timeout=60, show_progress=False)
                 for result in check_response.results:
                     kimina_results[result.id] = result
             except Exception as e:
@@ -107,13 +107,13 @@ class LeanRewardManager(NaiveRewardManager):
                 score = {
                     "score": 0.0,
                     "acc": 0.0,
-                    "pred": None,
+                    "pred": "",
                     "incorrect_format": int(incorrect_format),
                     "truncated": int(was_truncated),
                     "truncated_and_missing_answer": int(incorrect_format and was_truncated),
                     "feedback": feedback,
                     "lean_status": "incorrect_format",
-                    "lean_time": None,
+                    "lean_time": 0.0,
                 }
             elif conn_error is not None:
                 score = {
@@ -125,7 +125,7 @@ class LeanRewardManager(NaiveRewardManager):
                     "truncated_and_missing_answer": 0,
                     "feedback": f"Could not connect to Lean verification server: {conn_error}",
                     "lean_status": "server_unavailable",
-                    "lean_time": None,
+                    "lean_time": 0.0,
                 }
             else:
                 result = kimina_results[str(i)]
@@ -140,7 +140,7 @@ class LeanRewardManager(NaiveRewardManager):
                     "truncated_and_missing_answer": 0,
                     "feedback": format_lean_feedback(result, False),
                     "lean_status": analysis.status.value,
-                    "lean_time": result.time,
+                    "lean_time": result.time or 0.0,
                 }
 
             reward_tensor[i, valid_response_length - 1] = score["score"]

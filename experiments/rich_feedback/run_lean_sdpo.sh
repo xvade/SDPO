@@ -53,7 +53,7 @@ ALPHAS=(1.0)
 DONTS_REPROMPT_ON_SELF_SUCCESSS=(True)
 
 MODEL_PATHS=(
-    "Qwen/Qwen2.5-3B-Instruct"
+    "AI-MO/Kimina-Prover-Distill-1.7B"
 )
 
 WANDB_KEY="$(tr -d '\r\n' < "$SDPO_PATH/xvade/wandb_apikey.txt" 2>/dev/null || true)"
@@ -152,6 +152,8 @@ for TRAIN_BATCH_SIZE in "${TRAIN_BATCH_SIZES[@]}"; do
 reward_model.reward_manager=lean \
 trainer.group_name=vilin97-uw \
 trainer.resume_mode=auto \
+trainer.rollout_data_dir=/users/sgvtc/SDPO/xvade/rollouts/$EXP_NAME \
+trainer.validation_data_dir=/users/sgvtc/SDPO/xvade/rollouts/${EXP_NAME}_val \
 actor_rollout_ref.rollout.n=$ROLLOUT_BATCH_SIZE \
 actor_rollout_ref.model.path=$MODEL_PATH \
 actor_rollout_ref.actor.optim.lr=$LR \

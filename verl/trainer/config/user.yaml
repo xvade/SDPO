@@ -12,7 +12,7 @@ data:
   val_files: ["${vars.dir}/${vars.task}/test.parquet"]
   filter_overlong_prompts: True
   max_prompt_length: 2048
-  max_response_length: 8192
+  max_response_length: 16384
   shuffle: True
   trust_remote_code: True
   apply_chat_template_kwargs: {"enable_thinking": false}

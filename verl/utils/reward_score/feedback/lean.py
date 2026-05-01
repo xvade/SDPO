@@ -32,11 +32,23 @@ def _get_client():
     return _client
 
 
+def _normalize_proof_body(lean_code: str) -> str:
+    """Strip preamble lines and theorem headers, leaving only the tactic proof body."""
+    lines = lean_code.splitlines()
+    lines = [l for l in lines if not re.match(r"\s*(import|set_option)\b", l)]
+    lean_code = "\n".join(lines).strip()
+
+    # Remove theorem headers ('theorem ... := by'), which are safe to target by keyword
+    lean_code = re.sub(r"\btheorem\b.*?:=\s*by\b", "", lean_code, flags=re.DOTALL).strip()
+
+    return lean_code
+
+
 def extract_lean_code(response: str) -> Optional[str]:
     for pattern in (r"```lean4\s*(.*?)```", r"```lean\s*(.*?)```"):
         matches = re.findall(pattern, response, re.DOTALL)
         if matches:
-            return matches[-1].strip()
+            return _normalize_proof_body(matches[-1].strip())
     return None
 
 
@@ -64,7 +76,7 @@ def format_lean_feedback(result, was_truncated: bool) -> str:
     analysis = result.analyze()
 
     if analysis.status == SnippetStatus.timeout_error:
-        return f"Lean verification timed out after {result.time:.1f} seconds."
+        return "Lean verification timed out."
 
     if analysis.status in (SnippetStatus.repl_error, SnippetStatus.server_error):
         return f"Server error during verification: {result.error}"
@@ -123,13 +135,13 @@ def compute_score(
         return {
             "score": 0.0,
             "acc": 0.0,
-            "pred": None,
+            "pred": "",
             "incorrect_format": int(incorrect_format),
             "truncated": int(was_truncated),
             "truncated_and_missing_answer": int(incorrect_format and was_truncated),
             "feedback": feedback,
             "lean_status": "incorrect_format",
-            "lean_time": None,
+            "lean_time": 0.0,
         }
 
     full_code = f"{ground_truth}\n{lean_code}"
@@ -148,7 +160,7 @@ def compute_score(
             "truncated_and_missing_answer": 0,
             "feedback": f"Could not connect to Lean verification server: {e}",
             "lean_status": "server_unavailable",
-            "lean_time": None,
+            "lean_time": 0.0,
         }
 
     from kimina_client.models import SnippetStatus
@@ -165,5 +177,5 @@ def compute_score(
         "truncated_and_missing_answer": 0,
         "feedback": format_lean_feedback(result, was_truncated),
         "lean_status": analysis.status.value,
-        "lean_time": result.time,
+        "lean_time": result.time or 0.0,
     }

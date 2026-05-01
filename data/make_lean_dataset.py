@@ -95,7 +95,6 @@ def make_record(idx: int, theorem_name: str, content: str) -> dict:
     if ground_truth is None:
         return None
 
-    # Use the theorem name as the natural-language description (no prose available)
     description = theorem_name.replace("_", " ")
     theorem_stmt = extract_theorem_statement(content)
 
